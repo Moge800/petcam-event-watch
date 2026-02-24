@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import os
 import time
 
@@ -59,7 +60,7 @@ def main() -> None:
 
     try:
         
-        frame_iter = range(args.max_frames) if args.max_frames > 0 else iter(int, 1)
+        frame_iter = range(args.max_frames) if args.max_frames > 0 else itertools.count()
         for i in frame_iter:
             frame = camera.read()
             if frame is None:
