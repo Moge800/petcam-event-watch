@@ -28,8 +28,14 @@ def main() -> None:
 
     source = os.getenv("CAMERA_SOURCE", "0")
     conf_threshold = float(os.getenv("CONF_THRESHOLD", "0.4"))
-    cooldown_seconds = int(os.getenv("COOLDOWN_SECONDS", "300"))
+    cooldown_seconds = int(os.getenv("COOLDOWN_SECONDS", "45"))
     model_name = os.getenv("YOLO_MODEL", "yolo26n.pt")
+    allowed_labels = {
+        x.strip().lower()
+        for x in os.getenv("ALLOWED_LABELS", "dog,person").split(",")
+        if x.strip()
+    }
+    min_consecutive = int(os.getenv("MIN_CONSECUTIVE", "2"))
 
     print("[petcam-event-watch] starting")
     print(f"source={source} model={model_name} conf={conf_threshold}")
@@ -41,6 +47,7 @@ def main() -> None:
     camera = Camera(source)
     detector = YOLODetector(model_name=model_name, conf_threshold=conf_threshold)
     gate = CooldownGate(cooldown_seconds=cooldown_seconds)
+    consecutive_hits: dict[str, int] = {}
 
     try:
         for i in range(args.max_frames):
@@ -56,14 +63,23 @@ def main() -> None:
                     print(f"tick={i} no detections")
                 continue
 
-            top = max(detections, key=lambda d: d.confidence)
-            event_key = f"{top.label}"
+            filtered = [d for d in detections if d.label.lower() in allowed_labels]
+            if not filtered:
+                continue
+
+            top = max(filtered, key=lambda d: d.confidence)
+            event_key = f"{top.label.lower()}"
+            consecutive_hits[event_key] = consecutive_hits.get(event_key, 0) + 1
+
+            if consecutive_hits[event_key] < min_consecutive:
+                continue
 
             if gate.allow(event_key):
                 print(
                     f"[event] tick={i} label={top.label} conf={top.confidence:.3f} "
-                    f"(cooldown={cooldown_seconds}s)"
+                    f"(cooldown={cooldown_seconds}s, hits={consecutive_hits[event_key]})"
                 )
+                consecutive_hits[event_key] = 0
 
     finally:
         camera.release()
