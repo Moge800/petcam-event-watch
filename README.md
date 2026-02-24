@@ -1,6 +1,6 @@
 # petcam-event-watch
 
-Private skeleton for pet camera monitoring with low-rate-limit architecture.
+Event-driven pet camera monitor (YOLO + cooldown gate).
 
 ## Goal
 - Avoid sending every frame to LLM
@@ -9,19 +9,44 @@ Private skeleton for pet camera monitoring with low-rate-limit architecture.
 
 ## Architecture
 1. **Capture layer**: USB cam or RTSP
-2. **Local detector**: YOLO (or simple motion/person/dog classifier)
-3. **Event gate**: dedupe, cooldown, thresholding
+2. **Local detector**: YOLO
+3. **Event gate**: label filter + consecutive hits + cooldown
 4. **Notifier**: send only event snapshots
 5. **Optional LLM**: summarize event image only when needed
 
-## Quick start (skeleton)
+## Quick start (uv)
 ```bash
-python -m venv .venv
+cd /home/moge/develop/petcam-event-watch
+uv venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 cp .env.example .env
-python src/main.py --dry-run
+uv run python src/main.py --dry-run
 ```
 
-## Notes
-- This repo is intentionally private (contains home-ops assumptions).
+## Run
+```bash
+uv run python src/main.py --max-frames 300
+```
+
+## Recommended pet profile (dog only)
+Set in `.env`:
+
+```env
+CAMERA_SOURCE=0
+YOLO_MODEL=yolo26n.pt
+CONF_THRESHOLD=0.4
+ALLOWED_LABELS=dog
+MIN_CONSECUTIVE=2
+COOLDOWN_SECONDS=45
+```
+
+## Tuning tips
+- Too many false positives → increase `CONF_THRESHOLD` (e.g. `0.5`)
+- Missed detections → set `MIN_CONSECUTIVE=1`
+- Too many alerts → increase `COOLDOWN_SECONDS`
+
+## Status
+- USB camera capture: ✅
+- YOLO26 inference: ✅
+- Event trigger pipeline: ✅
