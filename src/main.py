@@ -13,6 +13,7 @@ except Exception:  # noqa: BLE001
 from capture.camera import Camera
 from detect.yolo_detector import YOLODetector
 from events.gate import CooldownGate
+from notify.discord_webhook import DiscordWebhookNotifier
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +37,8 @@ def main() -> None:
         if x.strip()
     }
     min_consecutive = int(os.getenv("MIN_CONSECUTIVE", "2"))
+    discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+    notify_enabled = os.getenv("NOTIFY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
     print("[petcam-event-watch] starting")
     print(f"source={source} model={model_name} conf={conf_threshold}")
@@ -47,6 +50,11 @@ def main() -> None:
     camera = Camera(source)
     detector = YOLODetector(model_name=model_name, conf_threshold=conf_threshold)
     gate = CooldownGate(cooldown_seconds=cooldown_seconds)
+    notifier = (
+        DiscordWebhookNotifier(discord_webhook_url)
+        if notify_enabled and discord_webhook_url
+        else None
+    )
     consecutive_hits: dict[str, int] = {}
 
     try:
@@ -81,6 +89,13 @@ def main() -> None:
                     f"[event] tick={i} label={top.label} conf={top.confidence:.3f} "
                     f"(cooldown={cooldown_seconds}s, hits={consecutive_hits[event_key]})"
                 )
+                if notifier is not None:
+                    sent = notifier.send_event(
+                        label=top.label,
+                        confidence=top.confidence,
+                        frame=frame,
+                    )
+                    print(f"[notify] discord webhook sent={sent}")
                 consecutive_hits[event_key] = 0
 
     finally:
