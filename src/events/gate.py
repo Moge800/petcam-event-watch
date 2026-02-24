@@ -6,11 +6,12 @@ import time
 class CooldownGate:
     def __init__(self, cooldown_seconds: int = 300):
         self.cooldown_seconds = cooldown_seconds
-        self._last_sent_at = 0.0
+        self._last_sent_at_by_key: dict[str, float] = {}
 
-    def allow(self) -> bool:
+    def allow(self, key: str = "default") -> bool:
         now = time.time()
-        if now - self._last_sent_at < self.cooldown_seconds:
+        last = self._last_sent_at_by_key.get(key, 0.0)
+        if now - last < self.cooldown_seconds:
             return False
-        self._last_sent_at = now
+        self._last_sent_at_by_key[key] = now
         return True
