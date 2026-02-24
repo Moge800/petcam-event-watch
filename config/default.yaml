@@ -1,0 +1,13 @@
+camera:
+  source: 0
+
+detection:
+  mode: stub
+  conf_threshold: 0.4
+
+event:
+  cooldown_seconds: 300
+  motion_delta_threshold: 0.12
+
+notify:
+  enabled: false
