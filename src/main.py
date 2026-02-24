@@ -18,7 +18,7 @@ from events.gate import CooldownGate
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--max-frames", type=int, default=300)
+    p.add_argument("--max-frames", type=int, default=0)
     return p.parse_args()
 
 
@@ -50,7 +50,9 @@ def main() -> None:
     consecutive_hits: dict[str, int] = {}
 
     try:
-        for i in range(args.max_frames):
+        
+        frame_iter = range(args.max_frames) if args.max_frames > 0 else iter(int, 1)
+        for i in frame_iter:
             frame = camera.read()
             if frame is None:
                 print("[warn] camera frame read failed")
