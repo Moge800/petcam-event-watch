@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
 import os
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 try:
     from dotenv import load_dotenv
@@ -24,6 +28,38 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _now_local() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _save_snapshot(frame: Any, snapshots_dir: Path, event_label: str, tick: int) -> str | None:
+    try:
+        import cv2  # type: ignore
+
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        ts = _now_local().strftime("%Y%m%d-%H%M%S")
+        safe_label = event_label.replace("/", "_").replace(" ", "_")
+        out_path = snapshots_dir / f"{ts}_{safe_label}_tick{tick}.jpg"
+        ok = cv2.imwrite(str(out_path), frame)
+        if not ok:
+            return None
+        return str(out_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] snapshot save failed: {e}")
+        return None
+
+
+def _append_event_log(log_path: Path, payload: dict[str, Any]) -> bool:
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] event log append failed: {e}")
+        return False
+
+
 def main() -> None:
     load_dotenv()
     args = parse_args()
@@ -41,8 +77,15 @@ def main() -> None:
     discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
     notify_enabled = os.getenv("NOTIFY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
+    # local persistence
+    save_snapshots = os.getenv("SAVE_SNAPSHOTS", "true").lower() in {"1", "true", "yes", "on"}
+    snapshots_dir = Path(os.getenv("SNAPSHOTS_DIR", "data/snapshots"))
+    event_log_path = Path(os.getenv("EVENT_LOG_PATH", "data/events/events.jsonl"))
+
     print("[petcam-event-watch] starting")
     print(f"source={source} model={model_name} conf={conf_threshold}")
+    print(f"save_snapshots={save_snapshots} snapshots_dir={snapshots_dir}")
+    print(f"event_log_path={event_log_path}")
 
     if args.dry_run:
         print("dry-run: config load OK")
@@ -59,7 +102,6 @@ def main() -> None:
     consecutive_hits: dict[str, int] = {}
 
     try:
-        
         frame_iter = range(args.max_frames) if args.max_frames > 0 else itertools.count()
         for i in frame_iter:
             frame = camera.read()
@@ -86,10 +128,31 @@ def main() -> None:
                 continue
 
             if gate.allow(event_key):
+                now = _now_local()
+                snapshot_path = (
+                    _save_snapshot(frame, snapshots_dir=snapshots_dir, event_label=top.label, tick=i)
+                    if save_snapshots
+                    else None
+                )
+
+                event = {
+                    "timestamp": now.isoformat(),
+                    "tick": i,
+                    "label": top.label,
+                    "confidence": round(float(top.confidence), 6),
+                    "cooldown_seconds": cooldown_seconds,
+                    "hits": consecutive_hits[event_key],
+                    "source": str(source),
+                    "snapshot_path": snapshot_path,
+                }
+                logged = _append_event_log(event_log_path, event)
+
                 print(
                     f"[event] tick={i} label={top.label} conf={top.confidence:.3f} "
-                    f"(cooldown={cooldown_seconds}s, hits={consecutive_hits[event_key]})"
+                    f"(cooldown={cooldown_seconds}s, hits={consecutive_hits[event_key]}) "
+                    f"snapshot={snapshot_path} logged={logged}"
                 )
+
                 if notifier is not None:
                     sent = notifier.send_event(
                         label=top.label,
