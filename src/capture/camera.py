@@ -10,7 +10,11 @@ class Camera:
             import cv2  # type: ignore
 
             self._cv2 = cv2
-            self.cap = cv2.VideoCapture(self.source)
+            # Try CAP_V4L2 backend explicitly first (fixes index-based open failure on some UVC devices)
+            self.cap = cv2.VideoCapture(self.source, cv2.CAP_V4L2)
+            if not self.cap.isOpened():
+                self.cap.release()
+                self.cap = cv2.VideoCapture(self.source)
         except Exception as e:  # noqa: BLE001
             self._cv2 = None
             self.cap = None

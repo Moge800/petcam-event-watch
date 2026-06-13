@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Petcam Event Watch - Current Specification</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --ink: #1d2733;
+      --muted: #617083;
+      --accent: #276c73;
+      --border: #d9e0e7;
+      --warn-bg: #fff7e6;
+      --warn-border: #e4b95f;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(960px, calc(100% - 32px));
+      margin: 40px auto;
+    }
+
+    header,
+    section {
+      margin-bottom: 20px;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    h1,
+    h2 {
+      margin-top: 0;
+      line-height: 1.3;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 1.25rem;
+    }
+
+    p,
+    ul,
+    dl,
+    pre {
+      margin-bottom: 0;
+    }
+
+    .subtitle,
+    .meta {
+      color: var(--muted);
+    }
+
+    .meta {
+      margin-top: 12px;
+      font-size: 0.9rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px 24px;
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: minmax(110px, 0.45fr) 1fr;
+      gap: 8px 16px;
+      margin-top: 0;
+    }
+
+    dt {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    dd {
+      margin: 0;
+    }
+
+    code {
+      padding: 0.15em 0.35em;
+      border-radius: 4px;
+      background: #eef2f5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .flow {
+      padding: 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #17212b;
+      color: #f5f7f9;
+      white-space: pre-wrap;
+    }
+
+    .warning {
+      border-left: 5px solid var(--warn-border);
+      background: var(--warn-bg);
+    }
+
+    footer {
+      padding: 10px 4px 30px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Petcam Event Watch</h1>
+      <p class="subtitle">clawpiで稼働する犬検知ペットカメラの現行仕様</p>
+      <p class="meta">確認日: 2026-06-13 / 対象ブランチ: master</p>
+    </header>
+
+    <section>
+      <h2>概要</h2>
+      <p>
+        USBカメラの映像をローカルYOLOで常時解析し、犬の検知イベントだけを
+        SSDへ保存してDiscordへ通知する。映像全体を外部LLMへ送信しない
+        イベント駆動方式である。
+      </p>
+      <pre class="flow">ELECOM USB Webcam
+  -> OpenCV / V4L2 capture
+  -> Ultralytics YOLO (yolo26n.pt)
+  -> dog label filter
+  -> hit count + 45-second cooldown
+  -> JPEG snapshot + JSONL event log
+  -> Discord webhook notification</pre>
+    </section>
+
+    <section>
+      <h2>実行環境</h2>
+      <div class="grid">
+        <dl>
+          <dt>ホスト</dt>
+          <dd><code>clawpi</code></dd>
+          <dt>配置先</dt>
+          <dd><code>/home/claw/petcam-event-watch</code></dd>
+          <dt>起動方式</dt>
+          <dd>ユーザーsystemdサービス</dd>
+          <dt>サービス名</dt>
+          <dd><code>petcam-event-watch.service</code></dd>
+        </dl>
+        <dl>
+          <dt>再起動</dt>
+          <dd>異常終了から15秒後</dd>
+          <dt>実行コマンド</dt>
+          <dd><code>.venv/bin/python src/main.py</code></dd>
+          <dt>カメラ</dt>
+          <dd>ELECOM 5MP Webcam</dd>
+          <dt>入力</dt>
+          <dd><code>/dev/video0</code></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section>
+      <h2>映像入力</h2>
+      <dl>
+        <dt>解像度</dt>
+        <dd>640 x 480</dd>
+        <dt>形式</dt>
+        <dd>YUYV 4:2:2</dd>
+        <dt>フレームレート</dt>
+        <dd>20 fps</dd>
+        <dt>バックエンド</dt>
+        <dd>V4L2を優先し、失敗時はOpenCV既定バックエンドへフォールバック</dd>
+        <dt>露出・フォーカス</dt>
+        <dd>自動</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>検知条件</h2>
+      <dl>
+        <dt>モデル</dt>
+        <dd><code>yolo26n.pt</code></dd>
+        <dt>対象ラベル</dt>
+        <dd><code>dog</code> のみ</dd>
+        <dt>信頼度しきい値</dt>
+        <dd>0.4以上</dd>
+        <dt>必要ヒット数</dt>
+        <dd>2回</dd>
+        <dt>クールダウン</dt>
+        <dd>犬ラベルごとに45秒</dd>
+        <dt>推論頻度</dt>
+        <dd>取得した全フレーム</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>イベント出力</h2>
+      <dl>
+        <dt>画像保存先</dt>
+        <dd><code>/mnt/claw-warehouse/snapshots</code></dd>
+        <dt>イベントログ</dt>
+        <dd><code>/mnt/claw-warehouse/events/events.jsonl</code></dd>
+        <dt>画像形式</dt>
+        <dd>JPEG</dd>
+        <dt>通知先</dt>
+        <dd>設定済みDiscord webhook</dd>
+        <dt>通知内容</dt>
+        <dd>ラベル、信頼度、検知時刻、検知フレーム画像</dd>
+      </dl>
+      <p>
+        JSONLには、時刻、tick、ラベル、信頼度、クールダウン秒数、
+        ヒット数、カメラソース、保存画像パスを1イベント1行で記録する。
+      </p>
+    </section>
+
+    <section>
+      <h2>主要設定値</h2>
+      <pre class="flow">CAMERA_SOURCE=0
+YOLO_MODEL=yolo26n.pt
+CONF_THRESHOLD=0.4
+ALLOWED_LABELS=dog
+MIN_CONSECUTIVE=2
+COOLDOWN_SECONDS=45
+SNAPSHOTS_DIR=/mnt/claw-warehouse/snapshots
+EVENT_LOG_PATH=/mnt/claw-warehouse/events/events.jsonl</pre>
+      <p>
+        Discord webhook URLなどの秘密値は、本仕様書には記載しない。
+      </p>
+    </section>
+
+    <section class="warning">
+      <h2>既知の注意点</h2>
+      <ul>
+        <li>
+          ヒットカウンタは未検知フレームでリセットされない。設定名は
+          <code>MIN_CONSECUTIVE</code> だが、実際の挙動は前回通知後の
+          累積ヒットに近い。
+        </li>
+        <li>
+          全フレームをYOLOへ入力するため、通常稼働時に約2 CPUコアを使用する。
+        </li>
+        <li>
+          保存データの自動削除、容量上限、日次集計は未実装。
+        </li>
+        <li>
+          オプションLLMによる画像要約は未実装。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>運用確認コマンド</h2>
+      <pre class="flow">systemctl --user status petcam-event-watch.service
+journalctl --user -u petcam-event-watch.service
+tail -n 20 /mnt/claw-warehouse/events/events.jsonl
+df -h /mnt/claw-warehouse</pre>
+    </section>
+
+    <footer>
+      This document describes the effective runtime configuration confirmed on
+      2026-06-13.
+    </footer>
+  </main>
+</body>
+</html>
